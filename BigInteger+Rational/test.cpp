@@ -7,11 +7,11 @@
 #include <string>
 #include <vector>
 
-#include "rational.h"
+#include "BigInt_Rational/rational.h"
 
 
 void hard_test() {
-  std::cout << "Biginteger hard test started!\n";
+  std::cout << "Biginteger hard test started!" << std::endl;
   BigInteger b, k;
   b = 0, k = 1234567;
   std::ostringstream oss;
@@ -141,7 +141,7 @@ void hard_test() {
       "-23534576554950000000000000009999990000999900000") {
   }
 
-  std::cout << "Rational hard test started!\n";
+  std::cout << "Rational hard test started!" << std::endl;
 
   Rational r;
   r = 5;
@@ -189,7 +189,7 @@ void random_test() {
 
   size_t count = 3000;
 
-  std::cout << "Biginteger random test started!\n";
+  std::cout << "Biginteger random test started!" << std::endl;
   for (size_t i = 0; i < count; ++i) {
     int64_t first = number(rnd);
     int64_t second = number(rnd);
@@ -215,7 +215,7 @@ void random_test() {
     assert((first / second) == (a / b));
     assert((first % second) == (a % b));
   }
-  std::cout << "Rational random test started!\n" << std::endl;
+  std::cout << "Rational random test started!" << std::endl;
   for (size_t i = 0; i < count; ++i) {
     int64_t first = number(rnd);
     int64_t second = number(rnd);
@@ -253,9 +253,9 @@ void long_divide_test() {
   for (size_t j = 0; j < 5'000; ++j) {
     second += static_cast<char>('0' + number(rnd));
   }
-  std::cout << "\nBiginteger long division test started!\n";
+  std::cout << "Biginteger long division test started!" << std::endl;
   std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-  std:: cout << BigInteger(first) / BigInteger(second) << "\n";
+  BigInteger(first) / BigInteger(second);
   std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
   std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " [µs]" << std::endl;
 }
@@ -264,4 +264,6 @@ int main() {
   random_test();
   hard_test();
   long_divide_test();
+
+  std::cout << "Finished testing!" << std::endl;
 }
