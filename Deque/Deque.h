@@ -12,14 +12,6 @@ class Deque {
         Index() : block_{0}, index_{0} {}
         Index(size_t block, size_t index) : block_{block}, index_{index} {}
 
-        Index& operator++() {
-            ++index_;
-            if (index_ == BLOCK_SIZE) {
-                ++block_;
-                index_ = 0;
-            }
-            return *this;
-        }
         void Extract(ptrdiff_t n) {
             if (n < 0) {
                 *this += (-n);
@@ -34,12 +26,12 @@ class Deque {
                 *this += n;
             }
         }
+        Index& operator++() {
+            *this += 1;
+            return *this;
+        }
         Index& operator--() {
-            if (index_ == 0) {
-                --block_;
-                index_ = BLOCK_SIZE;
-            }
-            --index_;
+            *this -= 1;
             return *this;
         }
         Index& operator+=(size_t go) {
@@ -62,12 +54,7 @@ class Deque {
         }
         Index operator+(size_t go) const {
             Index copy = *this;
-            copy.block_ += go / BLOCK_SIZE;
-            copy.index_ += go % BLOCK_SIZE;
-            if (copy.index_ >= BLOCK_SIZE) {
-                copy.block_ += copy.index_ / BLOCK_SIZE;
-                copy.index_ %= BLOCK_SIZE;
-            }
+            copy += go;
             return copy;
         }
         friend ptrdiff_t operator-(const Index& i_1, const Index& i_2) {
@@ -136,20 +123,35 @@ class Deque {
         bool create_;
     };
 
-    static constexpr size_t BLOCK_SIZE = 256;
-    Index start_;
-    Index end_;
-    size_t deque_cap_;
-    std::vector<Chunk> deque_;
+    void increase_cap() {
+        size_t cur_block_size = end_.block_ - start_.block_ + 1 -
+                                static_cast<size_t>(end_.index_ == 0);
+        size_t new_cap = std::max(3 * (cur_block_size + 1), deque_cap_);
+        std::vector<Chunk> new_deque(new_cap);
+        for (size_t i = 0; i < cur_block_size; ++i) {
+            new_deque[cur_block_size + 1 + i].Swap(deque_[i + start_.block_]);
+            deque_[i + start_.block_].SetNull();
+        }
+        deque_ = new_deque;
+        for (size_t i = 0; i < new_deque.size(); ++i) {
+            new_deque[i].SetNull();
+        }
+        deque_cap_ = new_cap;
+        size_t size = end_ - start_;
+        start_.block_ = cur_block_size + 1;
+        end_ = start_ + size;
+    }
 
   public:
     template <bool IsConst>
     class CommonIterator {
+        using chunks = std::conditional_t<IsConst, const Chunk*, Chunk*>;
+        using chunk = std::conditional_t<IsConst, const T*, T*>;
+
       public:
         using value_type = std::conditional_t<IsConst, const T, T>;
         using reference = std::conditional_t<IsConst, const T&, T&>;
         using pointer = std::conditional_t<IsConst, const T*, T*>;
-        using chunks = std::conditional_t<IsConst, const Chunk*, Chunk*>;
 
         CommonIterator() = default;
         CommonIterator(const CommonIterator& other) = default;
@@ -168,53 +170,60 @@ class Deque {
 
         CommonIterator& operator++() {
             ++position_;
+            UpdateCurr();
             return *this;
         }
         CommonIterator& operator--() {
             --position_;
+            UpdateCurr();
             return *this;
         }
         CommonIterator operator++(int) {
             auto copy = *this;
             ++position_;
+            UpdateCurr();
             return copy;
         }
 
         CommonIterator operator--(int) {
             auto copy = *this;
             --position_;
+            UpdateCurr();
             return copy;
         }
         CommonIterator& operator+=(ptrdiff_t n) {
             position_.Add(n);
+            UpdateCurr();
             return *this;
         }
         CommonIterator operator+(ptrdiff_t n) const {
             auto copy{*this};
             copy.position_.Add(n);
+            copy.UpdateCurr();
             return copy;
         }
-        friend CommonIterator operator+(ptrdiff_t n, CommonIterator it) {
-            it.Add(n);
-            return it;
+        friend CommonIterator operator+(ptrdiff_t n, const CommonIterator& it) {
+            return (it + n);
         }
         CommonIterator& operator-=(ptrdiff_t n) {
             position_.Extract(n);
+            UpdateCurr();
             return *this;
         }
         CommonIterator operator-(ptrdiff_t n) const {
             auto copy{*this};
             copy.position_.Extract(n);
+            copy.UpdateCurr();
             return copy;
         }
         ptrdiff_t operator-(const CommonIterator& other) const {
             return position_ - other.position_;
         }
         reference operator*() const {
-            return source_[position_.block_][position_.index_];
+            return current_[position_.index_];
         }
         pointer operator->() const {
-            return source_[position_.block_].data() + position_.index_;
+            return current_ + position_.index_;
         }
         reference operator[](size_t index) const {
             Index idx = position_ + index;
@@ -228,11 +237,21 @@ class Deque {
         };
 
       private:
-        CommonIterator(chunks deque, const Index& pos)
-            : position_{pos}, source_{deque} {};
+        void UpdateCurr() const {
+            if (position_ < end_) {
+                current_ = source_[position_.block_].data();
+            }
+        }
+        CommonIterator(chunks deque, const Index& pos, const Index& end)
+            : position_{pos},
+              end_(end),
+              source_{deque},
+              current_{end <= pos ? nullptr : source_[pos.block_].data()} {}
         friend Deque;
         Index position_;
+        Index end_;
         chunks source_;
+        mutable chunk current_;
     };
     using iterator = CommonIterator<false>;
     using const_iterator = CommonIterator<true>;
@@ -292,9 +311,7 @@ class Deque {
         Index idx{start_};
         try {
             for (; idx != end_; ++idx) {
-                if (idx.index_ == 0) {
-                    deque_[idx.block_].MakeChunk();
-                }
+                deque_[idx.block_].MakeChunk();
                 new (deque_[idx.block_].data() + idx.index_)
                     T(deque.deque_[idx.block_][idx.index_]);
             }
@@ -356,22 +373,22 @@ class Deque {
     }
 
     iterator begin() noexcept {
-        return iterator(deque_.data(), start_);
+        return iterator(deque_.data(), start_, end_);
     }
     iterator end() noexcept {
-        return iterator(deque_.data(), end_);
+        return iterator(deque_.data(), end_, end_);
     }
     const_iterator begin() const noexcept {
-        return const_iterator(deque_.data(), start_);
+        return const_iterator(deque_.data(), start_, end_);
     }
     const_iterator end() const noexcept {
-        return const_iterator(deque_.data(), end_);
+        return const_iterator(deque_.data(), end_, end_);
     }
     const_iterator cbegin() const noexcept {
-        return const_iterator(deque_.data(), start_);
+        return const_iterator(deque_.data(), start_, end_);
     }
     const_iterator cend() const noexcept {
-        return const_iterator(deque_.data(), end_);
+        return const_iterator(deque_.data(), end_, end_);
     }
 
     std::reverse_iterator<iterator> rbegin() noexcept {
@@ -397,9 +414,7 @@ class Deque {
         if (end_.block_ >= deque_cap_) {
             increase_cap();
         }
-        if (end_.index_ == 0) {
-            deque_[end_.block_].MakeChunk();
-        }
+        deque_[end_.block_].MakeChunk();
         new (deque_[end_.block_].data() + end_.index_) T(elem);
         ++end_;
     }
@@ -482,22 +497,9 @@ class Deque {
     }
 
   private:
-    void increase_cap() {
-        size_t cur_block_size = end_.block_ - start_.block_ + 1 -
-                                static_cast<size_t>(end_.index_ == 0);
-        size_t new_cap = std::max(3 * (cur_block_size + 1), deque_cap_);
-        std::vector<Chunk> new_deque(new_cap);
-        for (size_t i = 0; i < cur_block_size; ++i) {
-            new_deque[cur_block_size + 1 + i].Swap(deque_[i + start_.block_]);
-            deque_[i + start_.block_].SetNull();
-        }
-        deque_ = new_deque;
-        for (size_t i = 0; i < new_deque.size(); ++i) {
-            new_deque[i].SetNull();
-        }
-        deque_cap_ = new_cap;
-        size_t size = end_ - start_;
-        start_.block_ = cur_block_size + 1;
-        end_ = start_ + size;
-    }
+    static constexpr size_t BLOCK_SIZE = 5;
+    Index start_;
+    Index end_;
+    size_t deque_cap_;
+    std::vector<Chunk> deque_;
 };
